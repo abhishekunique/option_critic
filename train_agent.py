@@ -2,7 +2,7 @@ import sys, pdb, time, random, os, datetime, csv, theano, copy, pickle
 import cv2
 import numpy as np
 from random import randrange
-from ale_python_interface import ALEInterface
+# from ale_python_interface import ALEInterface
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -12,7 +12,7 @@ import pickle as pkl
 import theano.tensor as T
 import scipy, scipy.misc
 from neural_net import OptionCritic_Network
-from exp_replay import DataSet
+from nonimg_exp_replay import DataSet
 from plot_learning import plot
 
 sys.setrecursionlimit(50000)
@@ -26,7 +26,7 @@ def load_params(model_path):
 def create_dir(p):
   try:
     os.makedirs(p)
-  except OSError, e:
+  except OSError as e:
     if e.errno != 17:
       raise # This was not a "directory exist" error..
 
@@ -42,12 +42,12 @@ def filecreation(model_params, folder_name=None):
 class Trainer(object):
   def create_results_file(self):
     self.prog_file = os.path.join(self.mydir, 'training_progress.csv')
-    data_file = open(self.prog_file, 'wb')
+    data_file = open(self.prog_file, 'w')
     data_file.write('epoch,mean_score,mean_q_val\n')
     data_file.close()
 
     self.term_prob_file = os.path.join(self.mydir, 'term_prob.csv')
-    data_file = open(self.term_prob_file, 'wb')
+    data_file = open(self.term_prob_file, 'w')
     data_file.write('epoch,termination_prob\n')
     data_file.close()
 
@@ -74,12 +74,12 @@ class Trainer(object):
     if theano.config.device.startswith("gpu"):
       self.params.USE_DNN_TYPE=theano.sandbox.cuda.dnn.dnn_available()
     if self.params.USE_DNN_TYPE:
-      print "USING CUDNN"
+      print("USING CUDNN")
     else:
-      print "WARNING: NOT USING CUDNN. TRAINING WILL BE SLOWER."
+      print("WARNING: NOT USING CUDNN. TRAINING WILL BE SLOWER.")
     #self.params.USE_DNN_TYPE=False
 
-  def __init__(self, model_params, ale_env, folder_name):
+  def __init__(self, model_params, env, folder_name):
     self.init_time = time.time()
     # nn_file only present when watching test
     if model_params.nn_file is None:
@@ -87,11 +87,6 @@ class Trainer(object):
       self.create_results_file()
 
     self.params = model_params
-
-    #ale_env.setInt('frame_skip', self.params.frame_skip)
-    ale_env.setFloat('repeat_action_probability', 0.)
-    ale_env.setBool('color_averaging', self.params.mean_frame)
-    ale_env.loadROM(self.params.rom_path)
 
     self.print_option_stats = model_params.testing
     self.term_ratio = 0
@@ -105,10 +100,9 @@ class Trainer(object):
     self.best_reward = -100.
     self.max_frames_per_game = 18000
 
-    self.ale = ale_env
-    self.legal_actions = self.ale.getMinimalActionSet()
-    print "NUM ACTIONS --->", len(self.legal_actions)
-    self.screen_dims = self.ale.getScreenDims()
+    self.env = env
+    self.legal_actions = range(self.env.action_space.n)
+    print("NUM ACTIONS --->", len(self.legal_actions))
     self.last_dist = 0
     self.mean_entropy = 0
 
@@ -126,41 +120,33 @@ class Trainer(object):
     else:
       return reward
 
-  def _init_ep(self):
-    num_actions = np.random.randint(4, self.params.max_start_nullops)
-    x = []
-    self.last_screen = np.zeros((210, 160), dtype='uint8')
-    for i in range(num_actions):
-      self.ale.act(self.noop_action)
-      if i >= num_actions-self.params.phi_length:
-        x.append(self.get_observation())
-    return x
+  # def _init_ep(self):
+  #   num_actions = np.random.randint(4, self.params.max_start_nullops)
+  #   x = []
+  #   self.last_screen = np.zeros((210, 160), dtype='uint8')
+  #   for i in range(num_actions):
+  #     self.ale.act(self.noop_action)
+  #     if i >= num_actions-self.params.phi_length:
+  #       x.append(self.get_observation())
+  #   return x
 
   def act(self, action, testing=False):
     reward = 0
     for i in range(self.params.frame_skip):
-      reward += self.ale.act(self.legal_actions[action])
-    x = self.get_observation()
-    return self.cap_reward(reward, testing), self.cap_reward(reward, True), x
+      x,r,d,i = self.env.step(action)
+      reward += r
+    return self.cap_reward(reward, testing), self.cap_reward(reward, True), x, d
 
   def get_observation(self):
-    screen = self.ale.getScreenGrayscale().reshape(self.screen_dims[1], self.screen_dims[0])
-
-    if self.params.resize_method == "crop":
-      resized = scipy.misc.imresize(screen, size=(110,84))[self.params.offset:self.params.offset+84, :]
-    elif self.params.resize_method == "scale":
-      resized = cv2.resize(screen, (84, 84), interpolation=cv2.INTER_LINEAR)
-    else:
-      print "wrong resize_method, only have crop and scale"
-      raise NotImplementedError
-    return resized
+    obs = self.env.get_current_obs()
+    return obs
 
   def save_model(self, total_reward, skip_best=False):
     if total_reward >= self.best_reward and not skip_best:
       self.best_reward = total_reward
       pkl.dump(self.model.save_params(), open(os.path.join(self.mydir, 'best_model.pkl'), "w"), protocol=pkl.HIGHEST_PROTOCOL)
     pkl.dump(self.model.save_params(), open(os.path.join(self.mydir, 'last_model.pkl'), "w"), protocol=pkl.HIGHEST_PROTOCOL)
-    print "Saved model"
+    print("Saved model")
 
   def run_training_episode(self):
     raise NotImplementedError
@@ -195,18 +181,18 @@ class Trainer(object):
     while(self.frame_count - original_frame_count < self.params.steps_per_test):
       reward, fps = self.run_training_episode(self.max_frames_per_game, testing=True)
       print ("TESTING: %d fps,\t" % fps),
-      print ("%d frames,\t" % self.ale.getEpisodeFrameNumber()),
-      self.ale.reset_game()
-      print "%d points,\t" % reward,
+      # print ("%d frames,\t" % self.ale.getEpisodeFrameNumber()),
+      self.env.reset()
+      print ("%d points,\t" % reward)
       rem = self.params.steps_per_test-(self.frame_count - original_frame_count)
-      print "rem:", rem,
-      print "ETA: %d:%02d" % (max(0, rem/60/fps*4), ((rem/fps*4)%60) if rem > 0 else 0),
-      print "term ratio %.2f" % (100*self.term_ratio)
+      print ("rem:", rem)
+      print ("ETA: %d:%02d" % (max(0, rem/60/fps*4), ((rem/fps*4)%60) if rem > 0 else 0))
+      print ("term ratio %.2f" % (100*self.term_ratio))
       total_reward += reward
       num_games += 1
     self.frame_count = original_frame_count
     mean_reward = round(float(total_reward)/num_games, 2)
-    print "AVERAGE_SCORE:", mean_reward
+    print ("AVERAGE_SCORE:", mean_reward)
     if type(self) is Q_Learning:
       mean_q = self.get_mean_q_val() if self.params.nn_file is None else 1
     else:
@@ -224,15 +210,15 @@ class Trainer(object):
         total_reward, fps = self.run_training_episode(self.max_frames_per_game)
         cumulative_reward += total_reward
         frames_rem = self.params.steps_per_epoch-(self.frame_count-start_frames)
-        print ("ep %d,\t") % (counter+1),
-        print ("%d fps,\t" % fps),
-        print ("%d frames,\t" % self.ale.getEpisodeFrameNumber()),
-        self.ale.reset_game()
-        print ('%d points,\t' % total_reward),
-        print ('%.1f avg,\t' % (float(cumulative_reward)/(counter+1))),
-        print "%d rem," % frames_rem, 'eps: %.4f' % self.get_epsilon(),
-        print "ETA: %d:%02d" % (max(0, frames_rem/60/fps*4), ((frames_rem/fps*4)%60) if frames_rem > 0 else 0),
-        print "term ratio %.2f" % (100*self.term_ratio)
+        print ("ep" + str(counter+1))
+        print ("%d fps\t"% fps)
+        # print ("%d frames,\t" % self.ale.getEpisodeFrameNumber()),
+        self.env.reset()
+        print ('%d points,\t' % total_reward)
+        print ('%.1f avg,\t' % (float(cumulative_reward)/(counter+1)))
+        print ("%d rem," % frames_rem, 'eps: %.4f' % self.get_epsilon())
+        # print ("ETA: %d:%02d" % (max(0, frames_rem/60/fps*4), ((frames_rem/fps*4)%60) if frames_rem > 0 else 0))
+        print ("term ratio %.2f" % (100*self.term_ratio))
         counter += 1
 
       if self.params.nn_file is None:
@@ -246,21 +232,24 @@ class DQN_Trainer(Trainer):
     super(DQN_Trainer, self).__init__(**kwargs)
 
   def run_training_episode(self, max_steps, testing=False):
-    def get_new_frame(new_frame, x):
-      new_x = np.empty((4, 84, 84), dtype="float32")
-      new_x[0:3] = x[-3:]
-      new_x[-1] = new_frame
-      return new_x
+    def get_new_frame(new_frame):
+      # new_x = np.empty((4, 84, 84), dtype="float32")
+      # new_x[0:3] = np.transpose(new_frame, (2,1,0))[:, :84, :84]
+      # return new_x
+      return new_frame.astype(np.float32)
 
     start_time = time.time()
 
     total_reward = 0
     data_set = self.test_replay if testing else self.exp_replay
     start_frame_count = self.frame_count
-    x = self._init_ep()
-    s = self.model.get_state([x])
-    game_over = self.ale.game_over()
-    num_lives = self.ale.lives()
+    # x = self._init_ep()
+    x = self.env.reset()
+    x = get_new_frame(x)
+
+    s = self.model.get_state(x[None])
+    game_over = False
+    # num_lives = self.ale.lives()
     current_option = 0
     current_action = 0
     new_option = self.model.predict_move(s)[0]
@@ -274,19 +263,19 @@ class DQN_Trainer(Trainer):
       epsilon = self.get_epsilon() if not testing else self.params.optimal_eps
       if termination:
         if self.print_option_stats:
-          print "terminated -------", since_last_term,
+          print ("terminated -------", since_last_term)
         termination_counter += 1
         since_last_term = 1
         current_option = np.random.randint(self.params.num_options) if np.random.rand() < epsilon else new_option
         #current_option = self.get_option(epsilon, s)
       else:
         if self.print_option_stats:
-          print "keep going",
+          print ("keep going")
         since_last_term += 1
       current_action = self.model.get_action(s, [current_option])[0]
       #print current_option, current_action
       if self.print_option_stats:
-        print current_option,# current_action
+        print (current_option)# current_action
         #print [round(i, 2) for i in self.model.get_action_dist(s, [current_option])[0]]
         if True:
           self.action_counter[current_option][self.legal_actions[current_action]] += 1
@@ -296,9 +285,9 @@ class DQN_Trainer(Trainer):
             s3 = sum([aa[a] for a in aa])
             if s3 < 1:
               continue
-            print ii, aa, s3
+            print (ii, aa, s3)
             option_count.append(s3)
-            print [str(float(aa[a])/s3)[:5] for a in aa]
+            print ([str(float(aa[a])/s3)[:5] for a in aa])
             data_table.append([float(aa[a])/s3 for a in aa])
             print
 
@@ -306,18 +295,17 @@ class DQN_Trainer(Trainer):
           #print ttt, np.sum(-ttt*np.log(ttt))
           print
 
-      reward, raw_reward, new_frame = self.act(current_action, testing=testing)
+      reward, raw_reward, new_frame, game_over = self.act(current_action, testing=testing)
 
-      game_over = self.ale.game_over() or (self.frame_count-start_frame_count) > max_steps
-      new_num_lives = self.ale.lives()
-      life_death = (new_num_lives < num_lives and not testing and self.params.death_ends_episode)
-      num_lives = new_num_lives
-
-      data_set.add_sample(x[-1], current_option, reward, game_over or life_death)
+      # game_over = self.ale.game_over() or (self.frame_count-start_frame_count) > max_steps
+      # new_num_lives = self.ale.lives()
+      # life_death = (new_num_lives < num_lives and not testing and self.params.death_ends_episode)
+      # num_lives = new_num_lives
+      data_set.add_sample(x, current_option, reward, game_over)
 
       old_s = copy.deepcopy(s)
-      x = get_new_frame(new_frame, x)
-      s = self.model.get_state([x])
+      x = get_new_frame(new_frame)
+      s = self.model.get_state(x[None])
       term_out = self.model.predict_termination(s, [current_option])
       termination, new_option = term_out[0][0], term_out[1][0]
       if self.frame_count < self.params.replay_start_size and not testing:
@@ -325,16 +313,16 @@ class DQN_Trainer(Trainer):
       total_reward += raw_reward
       if self.frame_count > self.params.replay_start_size and not testing:
         self.learn_actor(old_s,
-                         np.array(x).reshape(1,4,84,84),
+                         np.array(x)[None],
                          [current_option],
                          [current_action],
                          [reward],
-                         [game_over or life_death])
+                         [game_over])
         if self.frame_count % self.params.update_frequency == 0:
           self.learn_critic()
         if self.frame_count % self.params.freeze_interval == 0:
           if self.params.freeze_interval > 999:
-            print "updated_params"
+            print ("updated_params")
           self.model.update_target_params()
 
     #print self.last_dist
@@ -342,11 +330,11 @@ class DQN_Trainer(Trainer):
     if not testing:
       self.term_probs.append(self.term_ratio)
     if self.print_option_stats:
-      print "---->", self.term_ratio
+      print ("---->", self.term_ratio)
       #self.print_table(data_table, option_count)
     fps = round((self.frame_count - start_frame_count)/(time.time()-start_time), 2)
-    fps = self.ale.getEpisodeFrameNumber()/(time.time()-start_time)
-    return total_reward, fps
+    # fps = self.ale.getEpisodeFrameNumber()/(time.time()-start_time)
+    return total_reward, 0
 
   def print_table(self, conf_arr, d1):
     pickle.dump(np.array(conf_arr), open( "/".join(self.params.nn_file.split("/")[:-1])+"/confu_data.pkl", "wb" ) )
@@ -387,6 +375,7 @@ class DQN_Trainer(Trainer):
     return td_errors
 
   def learn_critic(self):
+    print("learning critic")
     x, o, r, next_x, term = self.exp_replay.random_batch(self.params.batch_size)
     td_errors = self.model.train_conv_net(x, next_x, o, r, term, model="critic")
     return td_errors
@@ -394,20 +383,14 @@ class DQN_Trainer(Trainer):
 class Q_Learning(DQN_Trainer):
   def __init__(self, **kwargs):
     super(Q_Learning, self).__init__(**kwargs)
-    model_network = [{"model_type": "conv", "filter_size": [8,8], "pool": [1,1], "stride": [4,4],
-                     "out_size": 32, "activation": "relu"},
-                     {"model_type": "conv", "filter_size": [4,4], "pool": [1,1], "stride": [2,2],
-                     "out_size": 64, "activation": "relu"},
-                     {"model_type": "conv", "filter_size": [3,3], "pool": [1,1], "stride": [1,1],
-                     "out_size": 64, "activation": "relu"},
-                     {"model_type": "mlp", "out_size": 512, "activation": "relu"},
+    model_network = [{"model_type": "mlp", "out_size": 50, "activation": "relu"},
                      {"model_type": "mlp", "out_size": len(self.legal_actions), "activation": "linear"}]
 
     learning_params = self.get_learning_params()
 
     self.model = OptionCritic_Network(model_network=model_network,
       learning_method=self.params.update_rule, dnn_type=self.params.USE_DNN_TYPE, clip_delta=self.params.clip_delta,
-      input_size=[None,4,84,84], batch_size=self.params.batch_size, learning_params=learning_params,
+      input_size=[None,self.env.observation_space.shape[0]], batch_size=self.params.batch_size, learning_params=learning_params,
       gamma=self.params.discount, freeze_interval=self.params.freeze_interval,
       termination_reg=self.params.termination_reg, num_options=self.params.num_options,
       actor_lr=self.params.actor_lr, double_q=self.params.double_q, temp=self.params.temp,
@@ -415,8 +398,8 @@ class Q_Learning(DQN_Trainer):
     if self.params.nn_file is not None:
       self.model.load_params(pkl.load(open(self.params.nn_file, 'r')))
 
-    self.exp_replay = DataSet(84, 84, self.rng, max_steps=self.params.replay_memory_size, phi_length=4)
-    self.test_replay = DataSet(84, 84, self.rng, max_steps=4, phi_length=4)
+    self.exp_replay = DataSet(self.env.observation_space.shape[0], self.rng, max_steps=self.params.replay_memory_size, phi_length=1)
+    self.test_replay = DataSet(self.env.observation_space.shape[0], self.rng, max_steps=1, phi_length=1)
 
 if __name__ == "__main__":
   pass

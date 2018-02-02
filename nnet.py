@@ -59,7 +59,7 @@ class Model():
     elif model["model_type"] == "bias":
       layer = AddBias(model["b"] if "b" in model else None)
     else:
-      print "UNKNOWN LAYER NAME"
+      print ("UNKNOWN LAYER NAME")
       raise NotImplementedError
     return layer
 
@@ -76,7 +76,7 @@ class Model():
     lasagne.random.set_rng(rng) #set rng
 
     new_layer = tuple(input_size) if isinstance(input_size, list) else input_size
-    print model
+    print (model)
     self.model = model
     self.input_size = input_size
     self.dnn_type = dnn_type
@@ -106,7 +106,7 @@ class Model():
     return [i.get_value() for i in self.params]
 
   def load_params(self, values):
-    print "LOADING NNET..",
+    print ("LOADING NNET..")
     for p, value in zip(self.params, values):
       p.set_value(value)
-    print "LOADED"
+    print ("LOADED")

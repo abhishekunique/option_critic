@@ -27,18 +27,18 @@ class MLP3D():
     return [i.get_value() for i in self.params]
 
   def load_params(self, values):
-    print "LOADING NNET..",
+    print ("LOADING NNET..")
     for p, value in zip(self.params, values):
       p.set_value(value)
-    print "LOADED"
+    print ("LOADED")
 
 class OptionCritic_Network():
   def __init__(self, model_network=None, gamma=0.99, learning_method="rmsprop", actor_lr=0.00025,
     batch_size=32, input_size=None, learning_params=None, dnn_type=True, clip_delta=0,
     scale=255., freeze_interval=100, grad_clip=0, termination_reg=0, num_options=8,
     double_q=False, temp=1, entropy_reg=0, BASELINE=False, **kwargs):
-    x = T.ftensor4()
-    next_x = T.ftensor4()
+    x = T.fmatrix()
+    next_x = T.fmatrix()
     a = T.ivector()
     o = T.ivector()
     r = T.fvector()
@@ -57,7 +57,7 @@ class OptionCritic_Network():
     state_network = model_network[:-1]
     termination_network = copy.deepcopy([model_network[-1]])
     termination_network[0]["activation"] = "sigmoid"
-    print "NUM OPTIONS --->", num_options
+    print ("NUM OPTIONS --->", num_options)
     termination_network[0]["out_size"] = num_options
     option_network = copy.deepcopy([model_network[-1]])
     option_network[0]["activation"] = "softmax"
@@ -66,6 +66,7 @@ class OptionCritic_Network():
 
     self.state_model = Model(state_network, input_size=input_size, dnn_type=dnn_type)
     self.state_model_prime = Model(state_network, input_size=input_size, dnn_type=dnn_type)
+
     output_size = [None,model_network[-2]["out_size"]]
     self.Q_model = Model(Q_network, input_size=output_size, dnn_type=dnn_type)
     self.Q_model_prime = Model(Q_network, input_size=output_size, dnn_type=dnn_type)
@@ -92,7 +93,7 @@ class OptionCritic_Network():
     sampled_actions = T.argmax(self.theano_rng.multinomial(pvals=action_probs, n=1), axis=1).astype("int32")
 
     if double_q:
-      print "TRAINING DOUBLE_Q"
+      print ("TRAINING DOUBLE_Q")
       y = r + (1-terminal)*gamma*(
         (1-disc_option_term_prob)*next_Q_prime[T.arange(o.shape[0]), o] +
         disc_option_term_prob*next_Q_prime[T.arange(next_Q.shape[0]), T.argmax(next_Q, axis=1)])
@@ -141,9 +142,9 @@ class OptionCritic_Network():
         target_updates[t] = b
       self._update_target_params = theano.function([], [], updates=target_updates)
       self.update_target_params()
-      print "freeze interval:", self.freeze_interval
+      print ("freeze interval:", self.freeze_interval)
     else:
-      print "freeze interval: None"
+      print ("freeze interval: None")
 
     critic_givens = {x:self.x_shared, o:self.o_shared, r:self.r_shared,
     terminal:self.terminal_shared, next_x:self.next_x_shared}
@@ -151,7 +152,7 @@ class OptionCritic_Network():
     actor_givens = {a:self.a_shared, r:self.r_shared,
     terminal:self.terminal_shared, o:self.o_shared, next_x:self.next_x_shared}
 
-    print "compiling...",
+    print ("compiling...")
     self.train_critic = theano.function([], [critic_cost], updates=critic_updates, givens=critic_givens)
     self.train_actor = theano.function([s], [], updates=actor_updates, givens=actor_givens)
     self.pred_score = theano.function([], T.max(Q, axis=1), givens={x:self.x_shared})
@@ -160,7 +161,7 @@ class OptionCritic_Network():
     self.sample_actions = theano.function([s], sampled_actions, givens={o:self.o_shared})
     self.get_action_dist = theano.function([s, o], action_probs)
     self.get_s = theano.function([], s, givens={x:self.x_shared})
-    print "complete"
+    print ("complete")
 
   def update_target_params(self):
     if self.freeze_interval > 1:
@@ -198,7 +199,7 @@ class OptionCritic_Network():
       self.a_shared.set_value(actions)
       return self.train_actor(train_set_x)
     else:
-      print "WRONG MODEL NAME"
+      print ("WRONG MODEL NAME")
       raise NotImplementedError
 
   def save_params(self):

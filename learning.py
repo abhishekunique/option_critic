@@ -30,7 +30,7 @@ class RMSProp():
     self.rho = rho
     self.eps = eps
     self.lr = lr
-    print "rms", rho, eps, lr
+    print ("rms", rho, eps, lr)
 
   def apply(self, params, grads, grad_clip=0):
     updates = OrderedDict()

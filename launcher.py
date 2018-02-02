@@ -2,8 +2,9 @@ import os, sys
 import argparse
 import numpy as np
 import theano
-from ale_python_interface import ALEInterface
+# from ale_python_interface import ALEInterface
 from train_agent import Q_Learning
+import gym
 
 def str2bool(v):
   return v.lower() in ("yes", "true", "t", "1")
@@ -150,7 +151,7 @@ def process_args(args, defaults, description):
                         type=str2bool, default=defaults.BASELINE,
                         help='use baseline in actor gradient function. (default: %(default)s)')
     parameters = parser.parse_args(args)
-    print parameters
+    print(parameters)
     if parameters.experiment_prefix is None:
         name = os.path.splitext(os.path.basename(parameters.rom))[0]
         parameters.experiment_prefix = name
@@ -176,7 +177,7 @@ def launch(args, defaults, description):
         try:
           vars(defaults)[p.upper()] = temp_params[p]
         except:
-          print "warning: parameter", p, "from param file doesn't exist."
+          print("warning: parameter" + str(p) + "from param file doesn't exist.")
       #rec_screen = args[args.index("--nn-file")+1][:-len("last_model.pkl")]+"/frames"
 
     parameters = process_args(args, defaults, description)
@@ -191,11 +192,8 @@ def launch(args, defaults, description):
 
     folder_name = None if parameters.folder_name == "" else parameters.folder_name
 
-    ale = ALEInterface()
-    ale.setInt('random_seed', rng.randint(1000))
-    ale.setBool('display_screen', parameters.display_screen)
-    ale.setString('record_screen_dir', rec_screen)
-    trainer = Q_Learning(model_params=parameters, ale_env=ale, folder_name=folder_name)
+    env = gym.make("MountainCar-v0")
+    trainer = Q_Learning(model_params=parameters, env=env, folder_name=folder_name)
     trainer.train()
 
 if __name__ == '__main__':
