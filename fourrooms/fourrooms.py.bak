@@ -19,7 +19,7 @@ w           w
 w     w     w
 wwwwwwwwwwwww
 """
-        self.occupancy = np.array([list([1 if c=='w' else 0 for c in line]) for line in layout.splitlines()])
+        self.occupancy = np.array([list(map(lambda c: 1 if c=='w' else 0, line)) for line in layout.splitlines()])
 
         # From any state the agent can perform one of four actions, up, down, left or right
         self.action_space = spaces.Discrete(4)
@@ -35,7 +35,7 @@ wwwwwwwwwwwww
                 if self.occupancy[i, j] == 0:
                     self.tostate[(i,j)] = statenum
                     statenum += 1
-        self.tocell = {v:k for k,v in list(self.tostate.items())}
+        self.tocell = {v:k for k,v in self.tostate.items()}
 
         self.goal = 62
         self.init_states = list(range(self.observation_space.n))

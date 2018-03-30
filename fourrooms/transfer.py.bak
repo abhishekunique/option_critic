@@ -241,7 +241,7 @@ if __name__ == '__main__':
         for episode in range(args.nepisodes):
             if episode == 1000:
                 env.goal = rng.choice(possible_next_goals)
-                print(('************* New goal : ', env.goal))
+                print('************* New goal : ', env.goal)
 
             phi = features(env.reset())
             option = policy.sample(phi)
@@ -287,7 +287,7 @@ if __name__ == '__main__':
 
             history[run, episode, 0] = step
             history[run, episode, 1] = avgduration
-            print(('Run {} episode {} steps {} cumreward {} avg. duration {} switches {}'.format(run, episode, step, cumreward, avgduration, option_switches)))
+            print('Run {} episode {} steps {} cumreward {} avg. duration {} switches {}'.format(run, episode, step, cumreward, avgduration, option_switches))
         np.save(fname, history)
         dill.dump({'intra_policies':option_policies, 'policy':policy, 'term':option_terminations}, open('oc-options.pl', 'wb'))
         print(fname)
